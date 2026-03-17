@@ -27,11 +27,7 @@ _install () {
   # installs the whole environment, including mujoco
   _install_mujoco
   _activate "$1"
-  local CONDA_HOME=$HOME/.conda
-  if [ -d "$CONDA_HOME" ]; then \
-    conda install -n "$1" cudatoolkit=11.1 -c pytorch -y; \
-    conda activate "$1"  # just to be sure
-  fi
+  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME/.mujoco/mujoco-2.1.1/lib
   which pip
   pip install  --progress-bar off -U pip wheel
   pip install  --progress-bar off -r requirements.txt
@@ -48,7 +44,7 @@ _activate () {
   if [ -d "$CONDA_HOME" ]; then
     echo "Activating conda environment:" "$CONDA_ENV"
     conda deactivate
-    if [ ! -d "$CONDA_ENV" ]; then
+    if ! conda env list | grep -qE "^$1\s"; then
       echo "Creating environment"
       conda create -n "$1" python=3.8 ipython -y
     fi
@@ -88,6 +84,10 @@ _install_mujoco () {
         ;;
     esac
     rm -rf "$MUJOCO_FILE"
+  fi
+  # create symlink expected by mujoco_py (works for both fresh and existing installs)
+  if [ ! -L "$MUJOCO_FOLDER/mujoco210" ]; then
+    ln -sf "$MUJOCO_FOLDER/mujoco-2.1.1" "$MUJOCO_FOLDER/mujoco210"
   fi
 }
 

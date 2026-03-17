@@ -4,13 +4,13 @@ torch
 torchvision
 hydra-core
 hydra-submitit-launcher
-sklearn
+scikit-learn
 pandas
 matplotlib
 moviepy
 mujoco_py
 # git+https://github.com/deepmind/dm_control.git@644b3c6844cafd611cb2dfe82bc68bb6aed97292  # past this commit, it breaks
-dm-control==1.0.8  # let's keep it precise for now
+dm-control>=1.0.8
 wandb
 tensorboard
 setuptools>=65.5.1
@@ -18,7 +18,7 @@ opencv-python
 hiplot
 termcolor
 d4rl
-gym>=0.21,<0.22
+gym>=0.22,<0.26
 patchelf
 
 # for the demo
