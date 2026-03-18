@@ -461,7 +461,7 @@ class BaseWorkspace(tp.Generic[C]):
         print(f"loading checkpoint from {fp}")
         fp = Path(fp)
         with fp.open('rb') as f:
-            payload = torch.load(f)
+            payload = torch.load(f, weights_only=False)
         _update_legacy_class(payload, (ReplayBuffer,))
         if isinstance(payload, ReplayBuffer):  # compatibility with pure buffers pickles
             payload = {"replay_loader": payload}
