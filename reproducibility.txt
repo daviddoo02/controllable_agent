@@ -1,0 +1,35 @@
+Reproducibility
+---------------
+
+To evaluate the baselines presented in Touati & Ollivier (2021) and Eysenbach et al. (2019),
+experiments were conducted using the publicly available controllable_agent repository by Meta
+Research, which provides unified implementations of both the Forward-Backward (FB) agent and
+the Diversity Is All You Need (DIAYN) agent within a shared training framework. To ensure consistency across machines, a shared conda environment was used by all team members,
+with PyTorch 2.4.1 and CUDA 12.1. Experiments were distributed across multiple machines
+including local workstations [TEAMMATE SPECS HERE] and Google Colab instances.
+
+The original papers differ from this reproduction in their choice of environments. Touati &
+Ollivier (2021) evaluated the FB agent on discrete and continuous maze navigation, FetchReach,
+and Ms. Pacman, while Eysenbach et al. (2019) evaluated DIAYN primarily on MuJoCo locomotion
+tasks including HalfCheetah, Hopper, and Ant. In this reproduction, both agents are evaluated
+on the MuJoCo continuous control tasks available in the controllable_agent repository, namely
+cheetah_run and walker_walk. Although the exact environments do not match those in the original
+papers, cheetah_run serves as the closest analogue to the HalfCheetah task used by Eysenbach
+et al. (2019), and walker_walk provides a common benchmark for comparing both agents under
+identical conditions.
+
+Each agent was trained for 2 million environment frames, compared to approximately 1 million
+steps used in the original papers. This deviation was intentional, as the MuJoCo tasks in this
+repository are higher-dimensional and more complex than several of the original benchmark
+environments, requiring additional training to observe meaningful learning behavior. All runs
+used the default hyperparameters provided by the repository. To account for variance, each
+agent-task combination was run with three random seeds (seeds 1, 2, and 3), consistent with
+the evaluation protocol of Touati & Ollivier (2021). Training was monitored using TensorBoard,
+with evaluation episodes logged every 10,000 frames and model snapshots saved at fixed
+intervals throughout training.
+
+It is important to note that this reproduction does not constitute a direct numerical
+replication of the original results, given the differences in environments and training
+duration. Rather, it aims to reproduce the relative performance trends reported in the papers —
+specifically, whether FB demonstrates more stable and higher downstream task performance
+compared to DIAYN — using the closest available experimental setup.
