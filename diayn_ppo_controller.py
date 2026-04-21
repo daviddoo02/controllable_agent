@@ -673,7 +673,11 @@ def parse_args():
     )
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument(
-        "--outdir", required=True, help="Output directory for eval.csv and summary.json"
+        "--outdir",
+        help=(
+            "Output directory for eval.csv, summary.json, and checkpoints. "
+            "Defaults to outputs/diayn_ppo/<task>/seed-<seed>"
+        ),
     )
     parser.add_argument(
         "--total_frames",
@@ -745,7 +749,14 @@ def parse_args():
         help="Gradient clipping norm for PPO",
     )
     parser.add_argument("--device", default="cuda")
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.outdir is None:
+        args.outdir = str(
+            Path("outputs") / "diayn_ppo" / args.task / f"seed-{args.seed}"
+        )
+
+    return args
 
 
 if __name__ == "__main__":
