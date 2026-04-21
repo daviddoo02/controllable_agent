@@ -25,9 +25,9 @@ import json
 import math
 import os
 import time
+import typing as tp
 from collections import OrderedDict
 from pathlib import Path
-import typing as tp
 
 import numpy as np
 import torch
@@ -35,18 +35,17 @@ import torch.nn.functional as F
 from torch import nn
 from torch.distributions import Categorical
 
-os.environ['MUJOCO_GL'] = os.environ.get('MUJOCO_GL', 'egl')
-os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
+os.environ["MUJOCO_GL"] = os.environ.get("MUJOCO_GL", "egl")
+os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
 
 from url_benchmark import dmc, utils
 
 
 def make_env(task: str, seed: int = 1) -> dmc.EnvWrapper:
-    return dmc.make(task, obs_type='states', frame_stack=1,
-                    action_repeat=1, seed=seed)
+    return dmc.make(task, obs_type="states", frame_stack=1, action_repeat=1, seed=seed)
 
 
-def load_diayn_agent(snapshot_path: str, device: str = 'cuda'):
+def load_diayn_agent(snapshot_path: str, device: str = "cuda"):
     """Load the pretrained DIAYN agent and place it on the requested device."""
     path = Path(snapshot_path)
 
@@ -55,10 +54,10 @@ def load_diayn_agent(snapshot_path: str, device: str = 'cuda'):
 
     print(f"[Load] {snapshot_path}")
 
-    with path.open('rb') as f:
+    with path.open("rb") as f:
         payload = torch.load(f, map_location=device, weights_only=False)
 
-    agent = payload['agent']
+    agent = payload["agent"]
     agent.device = torch.device(device)
     agent.reward_free = False
     return agent
@@ -73,10 +72,10 @@ def freeze_diayn_agent(agent) -> None:
         agent.critic_target,
     ]
 
-    if getattr(agent, 'diayn', None) is not None:
+    if getattr(agent, "diayn", None) is not None:
         modules.append(agent.diayn)
 
-    if getattr(agent, 'reward_model', None) is not None:
+    if getattr(agent, "reward_model", None) is not None:
         modules.append(agent.reward_model)
 
     for module in modules:
@@ -92,7 +91,7 @@ def make_skill_meta(skill_idx: int, skill_dim: int) -> OrderedDict:
     skill = np.zeros(skill_dim, dtype=np.float32)
     skill[skill_idx] = 1.0
     meta = OrderedDict()
-    meta['skill'] = skill
+    meta["skill"] = skill
     return meta
 
 
@@ -274,11 +273,43 @@ def run_eval(
     return total_reward / num_episodes
 
 
-def log_eval(csv_path: Path, frame: int, episode: int,
-             reward: float, step: int) -> None:
+def log_eval(
+    csv_path: Path, frame: int, episode: int, reward: float, step: int
+) -> None:
     """Append one evaluation row to eval.csv."""
-    with csv_path.open('a', newline='') as f:
+    with csv_path.open("a", newline="") as f:
         csv.writer(f).writerow([frame, episode, round(reward, 4), step])
+
+
+def save_checkpoint(
+    checkpoint_path: Path,
+    controller: SkillController,
+    optimizer: torch.optim.Optimizer,
+    args: argparse.Namespace,
+    frame: int,
+    eval_count: int,
+    reward: float,
+    best_reward: float,
+) -> None:
+    """Persist the PPO controller state and run metadata for reload or resume."""
+    payload = {
+        "controller_state_dict": controller.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "task": args.task,
+        "seed": args.seed,
+        "snapshot": str(Path(args.snapshot).resolve()),
+        "device": args.device,
+        "total_frames": args.total_frames,
+        "skill_horizon": args.skill_horizon,
+        "hidden_dim": args.hidden_dim,
+        "frame": frame,
+        "eval_count": eval_count,
+        "reward": reward,
+        "best_reward": best_reward,
+        "args": vars(args),
+    }
+
+    torch.save(payload, checkpoint_path)
 
 
 def compute_gae(
@@ -327,16 +358,22 @@ def ppo_update(
 ) -> tp.Dict[str, float]:
     """Run PPO updates on the collected high-level rollout."""
     advantages, returns = compute_gae(controller, buffer, device, gae_lambda)
-    obs_tensor = torch.as_tensor(np.stack(buffer.obs), dtype=torch.float32, device=device)
+    obs_tensor = torch.as_tensor(
+        np.stack(buffer.obs), dtype=torch.float32, device=device
+    )
     actions = torch.as_tensor(buffer.actions, dtype=torch.int64, device=device)
-    old_log_probs = torch.as_tensor(buffer.log_probs, dtype=torch.float32, device=device)
+    old_log_probs = torch.as_tensor(
+        buffer.log_probs, dtype=torch.float32, device=device
+    )
 
-    advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
+    advantages = (advantages - advantages.mean()) / (
+        advantages.std(unbiased=False) + 1e-8
+    )
     sample_count = obs_tensor.size(0)
     losses: tp.Dict[str, float] = {
-        'policy_loss': 0.0,
-        'value_loss': 0.0,
-        'entropy': 0.0,
+        "policy_loss": 0.0,
+        "value_loss": 0.0,
+        "entropy": 0.0,
     }
     updates = 0
 
@@ -371,9 +408,9 @@ def ppo_update(
             torch.nn.utils.clip_grad_norm_(controller.parameters(), max_grad_norm)
             optimizer.step()
 
-            losses['policy_loss'] += float(policy_loss.item())
-            losses['value_loss'] += float(value_loss.item())
-            losses['entropy'] += float(entropy.item())
+            losses["policy_loss"] += float(policy_loss.item())
+            losses["value_loss"] += float(value_loss.item())
+            losses["entropy"] += float(entropy.item())
             updates += 1
 
     if updates:
@@ -386,7 +423,7 @@ def ppo_update(
 
 def train_controller(args) -> float:
     """Train a PPO skill controller on top of a frozen pretrained DIAYN agent."""
-    device_name = args.device if torch.cuda.is_available() else 'cpu'
+    device_name = args.device if torch.cuda.is_available() else "cpu"
     device = torch.device(device_name)
 
     print(f"\n{'=' * 64}")
@@ -400,8 +437,10 @@ def train_controller(args) -> float:
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    eval_csv_path = outdir / 'eval.csv'
-    summary_path = outdir / 'summary.json'
+    eval_csv_path = outdir / "eval.csv"
+    summary_path = outdir / "summary.json"
+    checkpoint_path = outdir / "checkpoint.pt"
+    best_checkpoint_path = outdir / "best_checkpoint.pt"
 
     utils.set_seed_everywhere(args.seed)
     train_env = make_env(args.task, seed=args.seed)
@@ -415,8 +454,8 @@ def train_controller(args) -> float:
     controller = SkillController(obs_dim, skill_dim, args.hidden_dim).to(device)
     optimizer = torch.optim.Adam(controller.parameters(), lr=args.lr)
 
-    with eval_csv_path.open('w', newline='') as f:
-        csv.writer(f).writerow(['frame', 'episode', 'episode_reward', 'step'])
+    with eval_csv_path.open("w", newline="") as f:
+        csv.writer(f).writerow(["frame", "episode", "episode_reward", "step"])
 
     time_step = train_env.reset()
     obs = np.array(time_step.observation, dtype=np.float32)
@@ -437,10 +476,20 @@ def train_controller(args) -> float:
         device=device,
         num_episodes=args.eval_episodes,
     )
-    log_eval(eval_csv_path, frame=0, episode=eval_count,
-             reward=baseline_reward, step=0)
+    log_eval(eval_csv_path, frame=0, episode=eval_count, reward=baseline_reward, step=0)
     print(f"  [Eval @{0:>7} frames] reward = {baseline_reward:7.2f}")
     eval_count += 1
+    best_reward = baseline_reward
+    save_checkpoint(
+        best_checkpoint_path,
+        controller,
+        optimizer,
+        args,
+        frame=0,
+        eval_count=eval_count,
+        reward=baseline_reward,
+        best_reward=best_reward,
+    )
 
     next_eval_frame = args.eval_every
 
@@ -459,7 +508,7 @@ def train_controller(args) -> float:
             deterministic=True,
         )
 
-        discount = 0.0 if done else float(args.gamma ** frames_used)
+        discount = 0.0 if done else float(args.gamma**frames_used)
         buffer.add(
             obs=obs,
             action=skill_idx,
@@ -486,14 +535,33 @@ def train_controller(args) -> float:
                 device=device,
                 num_episodes=args.eval_episodes,
             )
-            log_eval(eval_csv_path, frame=global_frame, episode=eval_count,
-                     reward=eval_reward, step=global_frame)
+            log_eval(
+                eval_csv_path,
+                frame=global_frame,
+                episode=eval_count,
+                reward=eval_reward,
+                step=global_frame,
+            )
             elapsed = time.time() - start_time
             print(
                 f"  [Eval @{global_frame:>7} frames] reward = {eval_reward:7.2f} "
                 f"({elapsed:.0f}s elapsed)"
             )
             eval_count += 1
+
+            if eval_reward > best_reward:
+                best_reward = eval_reward
+                save_checkpoint(
+                    best_checkpoint_path,
+                    controller,
+                    optimizer,
+                    args,
+                    frame=global_frame,
+                    eval_count=eval_count,
+                    reward=eval_reward,
+                    best_reward=best_reward,
+                )
+
             next_eval_frame += args.eval_every
 
         if done:
@@ -533,28 +601,59 @@ def train_controller(args) -> float:
         device=device,
         num_episodes=args.eval_episodes,
     )
-    log_eval(eval_csv_path, frame=global_frame, episode=eval_count,
-             reward=final_reward, step=global_frame)
+    log_eval(
+        eval_csv_path,
+        frame=global_frame,
+        episode=eval_count,
+        reward=final_reward,
+        step=global_frame,
+    )
+    previous_best_reward = best_reward
+    best_reward = max(best_reward, final_reward)
+    save_checkpoint(
+        checkpoint_path,
+        controller,
+        optimizer,
+        args,
+        frame=global_frame,
+        eval_count=eval_count + 1,
+        reward=final_reward,
+        best_reward=best_reward,
+    )
+
+    if final_reward >= previous_best_reward:
+        save_checkpoint(
+            best_checkpoint_path,
+            controller,
+            optimizer,
+            args,
+            frame=global_frame,
+            eval_count=eval_count + 1,
+            reward=final_reward,
+            best_reward=best_reward,
+        )
 
     summary = {
-        'task': args.task,
-        'seed': args.seed,
-        'total_frames': args.total_frames,
-        'skill_horizon': args.skill_horizon,
-        'baseline_reward': baseline_reward,
-        'final_reward': final_reward,
-        'last_losses': last_losses,
+        "task": args.task,
+        "seed": args.seed,
+        "total_frames": args.total_frames,
+        "skill_horizon": args.skill_horizon,
+        "baseline_reward": baseline_reward,
+        "final_reward": final_reward,
+        "last_losses": last_losses,
     }
 
-    with summary_path.open('w') as f:
+    with summary_path.open("w") as f:
         json.dump(summary, f, indent=2)
 
     print(f"\n{'=' * 64}")
     print("[Done]")
     print(f"  Task           : {args.task}   seed={args.seed}")
     print(f"  Baseline eval  : {baseline_reward:.2f}")
-    print(f"  Final eval     : {final_reward:.2f}  "
-          f"(delta={final_reward - baseline_reward:+.2f})")
+    print(
+        f"  Final eval     : {final_reward:.2f}  "
+        f"(delta={final_reward - baseline_reward:+.2f})"
+    )
     print(f"  Output         : {outdir}")
     print(f"{'=' * 64}\n")
 
@@ -563,49 +662,91 @@ def train_controller(args) -> float:
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Train a PPO controller over pretrained DIAYN skills',
+        description="Train a PPO controller over pretrained DIAYN skills",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument('--snapshot', required=True,
-                        help='Path to pretrained DIAYN snapshot .pt file')
-    parser.add_argument('--task', required=True,
-                        help='DMC task name, e.g. walker_walk or cheetah_run')
-    parser.add_argument('--seed', type=int, default=1)
-    parser.add_argument('--outdir', required=True,
-                        help='Output directory for eval.csv and summary.json')
-    parser.add_argument('--total_frames', type=int, default=100_000,
-                        help='Total downstream frame budget')
-    parser.add_argument('--skill_horizon', type=int, default=50,
-                        help='Environment steps per PPO skill decision')
-    parser.add_argument('--eval_every', type=int, default=4_000,
-                        help='Frames between evaluation rollouts')
-    parser.add_argument('--eval_episodes', type=int, default=5,
-                        help='Episodes per evaluation rollout')
-    parser.add_argument('--hidden_dim', type=int, default=256,
-                        help='Hidden width for the PPO controller network')
-    parser.add_argument('--rollout_decisions', type=int, default=256,
-                        help='High-level decisions collected before each PPO update')
-    parser.add_argument('--ppo_epochs', type=int, default=4,
-                        help='Number of PPO epochs per rollout')
-    parser.add_argument('--batch_size', type=int, default=64,
-                        help='Mini-batch size for PPO updates')
-    parser.add_argument('--lr', type=float, default=3e-4,
-                        help='Learning rate for the PPO controller')
-    parser.add_argument('--gamma', type=float, default=0.99,
-                        help='Discount factor over low-level environment frames')
-    parser.add_argument('--gae_lambda', type=float, default=0.95,
-                        help='GAE lambda for PPO advantage estimation')
-    parser.add_argument('--clip_eps', type=float, default=0.2,
-                        help='PPO clipping epsilon')
-    parser.add_argument('--value_coef', type=float, default=0.5,
-                        help='Value loss coefficient')
-    parser.add_argument('--entropy_coef', type=float, default=0.01,
-                        help='Entropy bonus coefficient')
-    parser.add_argument('--max_grad_norm', type=float, default=0.5,
-                        help='Gradient clipping norm for PPO')
-    parser.add_argument('--device', default='cuda')
+    parser.add_argument(
+        "--snapshot", required=True, help="Path to pretrained DIAYN snapshot .pt file"
+    )
+    parser.add_argument(
+        "--task", required=True, help="DMC task name, e.g. walker_walk or cheetah_run"
+    )
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument(
+        "--outdir", required=True, help="Output directory for eval.csv and summary.json"
+    )
+    parser.add_argument(
+        "--total_frames",
+        type=int,
+        default=100_000,
+        help="Total downstream frame budget",
+    )
+    parser.add_argument(
+        "--skill_horizon",
+        type=int,
+        default=50,
+        help="Environment steps per PPO skill decision",
+    )
+    parser.add_argument(
+        "--eval_every",
+        type=int,
+        default=4_000,
+        help="Frames between evaluation rollouts",
+    )
+    parser.add_argument(
+        "--eval_episodes", type=int, default=5, help="Episodes per evaluation rollout"
+    )
+    parser.add_argument(
+        "--hidden_dim",
+        type=int,
+        default=256,
+        help="Hidden width for the PPO controller network",
+    )
+    parser.add_argument(
+        "--rollout_decisions",
+        type=int,
+        default=256,
+        help="High-level decisions collected before each PPO update",
+    )
+    parser.add_argument(
+        "--ppo_epochs", type=int, default=4, help="Number of PPO epochs per rollout"
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=64, help="Mini-batch size for PPO updates"
+    )
+    parser.add_argument(
+        "--lr", type=float, default=3e-4, help="Learning rate for the PPO controller"
+    )
+    parser.add_argument(
+        "--gamma",
+        type=float,
+        default=0.99,
+        help="Discount factor over low-level environment frames",
+    )
+    parser.add_argument(
+        "--gae_lambda",
+        type=float,
+        default=0.95,
+        help="GAE lambda for PPO advantage estimation",
+    )
+    parser.add_argument(
+        "--clip_eps", type=float, default=0.2, help="PPO clipping epsilon"
+    )
+    parser.add_argument(
+        "--value_coef", type=float, default=0.5, help="Value loss coefficient"
+    )
+    parser.add_argument(
+        "--entropy_coef", type=float, default=0.01, help="Entropy bonus coefficient"
+    )
+    parser.add_argument(
+        "--max_grad_norm",
+        type=float,
+        default=0.5,
+        help="Gradient clipping norm for PPO",
+    )
+    parser.add_argument("--device", default="cuda")
     return parser.parse_args()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     train_controller(parse_args())
