@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 from pathlib import Path
 from statistics import mean, stdev
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RUNS_EVAL_DIR = REPO_ROOT / "runs-eval" / "evals"
-OUTPUT_PATH = REPO_ROOT / "ppo_reward_table.md"
+DEFAULT_PPO_ROOT = REPO_ROOT / "outputs" / "diayn_ppo"
+DEFAULT_OUTPUT_PATH = REPO_ROOT / "ppo_reward_table.md"
 
 
 def ReadSummary(summaryPath: Path) -> dict[str, object]:
@@ -22,12 +23,16 @@ def ReadMeanEpisodeReward(evalPath: Path) -> float:
     return mean(float(row["episode_reward"]) for row in rows)
 
 
-def BuildTaskSummary() -> dict[str, dict[str, object]]:
+def BuildTaskSummary(ppoRoot: Path) -> dict[str, dict[str, object]]:
     byTask: dict[str, list[dict[str, float | int]]] = {}
 
-    for summaryPath in sorted(RUNS_EVAL_DIR.glob("*/02_ppo_controller/summary.json")):
+    for summaryPath in sorted(ppoRoot.rglob("summary.json")):
         summary = ReadSummary(summaryPath)
         evalPath = summaryPath.parent / "eval.csv"
+
+        if not evalPath.exists():
+            continue
+
         task = str(summary["task"])
         seed = int(summary["seed"])
         finalReward = float(summary["final_reward"])
@@ -108,10 +113,30 @@ def BuildTable(taskSummary: dict[str, dict[str, object]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def ParseArgs() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Build a Markdown summary table for PPO controller eval runs.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--ppo-root",
+        default=str(DEFAULT_PPO_ROOT),
+        help="Root directory to search recursively for PPO eval outputs.",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(DEFAULT_OUTPUT_PATH),
+        help="Path to the Markdown table file to write.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    taskSummary = BuildTaskSummary()
-    OUTPUT_PATH.write_text(BuildTable(taskSummary))
-    print(OUTPUT_PATH.read_text())
+    args = ParseArgs()
+    outputPath = Path(args.output)
+    taskSummary = BuildTaskSummary(Path(args.ppo_root))
+    outputPath.write_text(BuildTable(taskSummary))
+    print(outputPath.read_text())
 
 
 if __name__ == "__main__":

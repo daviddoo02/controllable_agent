@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 from pathlib import Path
@@ -7,7 +8,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RUNS_EVAL_DIR = REPO_ROOT / "runs-eval" / "evals"
+DEFAULT_PPO_ROOT = REPO_ROOT / "outputs" / "diayn_ppo"
 
 
 def ReadCsv(path: Path) -> list[dict[str, str]]:
@@ -20,24 +21,46 @@ def ReadJson(path: Path) -> dict[str, object]:
         return json.load(handle)
 
 
-def ParseTaskFromRunName(runName: str) -> str:
-    parts = runName.split("_")
-
-    return "_".join(parts[2:])
-
-
-def LoadPpoSeries() -> dict[str, dict[int, list[tuple[float, float]]]]:
+def LoadPpoSeries(ppoRoot: Path) -> dict[str, dict[int, list[tuple[float, float]]]]:
     series: dict[str, dict[int, list[tuple[float, float]]]] = {}
 
-    for evalDir in sorted(path for path in RUNS_EVAL_DIR.iterdir() if path.is_dir()):
-        task = ParseTaskFromRunName(evalDir.name)
-        manifest = ReadJson(evalDir / "manifest.json")
-        seed = int(manifest["seed"])
-        rows = ReadCsv(evalDir / "02_ppo_controller" / "eval.csv")
+    for summaryPath in sorted(ppoRoot.rglob("summary.json")):
+        summary = ReadJson(summaryPath)
+        evalPath = summaryPath.parent / "eval.csv"
+
+        if not evalPath.exists():
+            continue
+
+        task = str(summary["task"])
+        seed = int(summary["seed"])
+        rows = ReadCsv(evalPath)
         points = [(float(row["frame"]), float(row["episode_reward"])) for row in rows]
         series.setdefault(task, {})[seed] = points
 
     return series
+
+
+def ParseArgs() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Plot PPO controller evaluation runs.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--ppo-root",
+        default=str(DEFAULT_PPO_ROOT),
+        help="Root directory to search recursively for PPO eval outputs.",
+    )
+    parser.add_argument(
+        "--curves-output",
+        default=str(REPO_ROOT / "ppo_learning_curves.png"),
+        help="Path to write the PPO learning-curve figure.",
+    )
+    parser.add_argument(
+        "--bars-output",
+        default=str(REPO_ROOT / "ppo_final_reward_bars.png"),
+        help="Path to write the PPO final-reward bar chart.",
+    )
+    return parser.parse_args()
 
 
 def PlotPpoLearningCurves(
@@ -101,9 +124,10 @@ def PlotPpoFinalRewardBars(
 
 
 def main() -> None:
-    series = LoadPpoSeries()
-    PlotPpoLearningCurves(series, REPO_ROOT / "ppo_learning_curves.png")
-    PlotPpoFinalRewardBars(series, REPO_ROOT / "ppo_final_reward_bars.png")
+    args = ParseArgs()
+    series = LoadPpoSeries(Path(args.ppo_root))
+    PlotPpoLearningCurves(series, Path(args.curves_output))
+    PlotPpoFinalRewardBars(series, Path(args.bars_output))
 
 
 if __name__ == "__main__":
