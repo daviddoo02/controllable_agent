@@ -8,7 +8,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RUNS_ROOT = REPO_ROOT / "runs"
+DEFAULT_ORIGINAL_EVALS_ROOT = REPO_ROOT / "runs"
 DEFAULT_PPO_ROOT = REPO_ROOT / "outputs" / "diayn_ppo"
 PLOTS_DIR = REPO_ROOT / "plots"
 
@@ -41,7 +41,7 @@ def ReadManifest(manifestPath: Path) -> dict[str, object]:
 
 
 def LoadSeries(
-    runsRoot: Path,
+    originalEvalsRoot: Path,
     ppoRoot: Path,
 ) -> dict[str, dict[str, dict[int, list[tuple[float, float]]]]]:
     series: dict[str, dict[str, dict[int, list[tuple[float, float]]]]] = {
@@ -49,7 +49,7 @@ def LoadSeries(
         "ppo": {},
     }
 
-    for runDir in sorted(path for path in runsRoot.iterdir() if path.is_dir()):
+    for runDir in sorted(path for path in originalEvalsRoot.iterdir() if path.is_dir()):
         task = ParseTaskFromRunName(runDir.name)
         seed = ReadSeedFromCommand(runDir / "command.txt")
         rows = ReadCsv(runDir / "eval.csv")
@@ -78,8 +78,10 @@ def ParseArgs() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
+        "--original-evals-root",
         "--runs-root",
-        default=str(DEFAULT_RUNS_ROOT),
+        dest="original_evals_root",
+        default=str(DEFAULT_ORIGINAL_EVALS_ROOT),
         help="Root directory containing original DIAYN eval runs.",
     )
     parser.add_argument(
@@ -181,7 +183,7 @@ def main() -> None:
     args = ParseArgs()
     PLOTS_DIR.mkdir(exist_ok=True)
 
-    series = LoadSeries(Path(args.runs_root), Path(args.ppo_root))
+    series = LoadSeries(Path(args.original_evals_root), Path(args.ppo_root))
 
     PlotLearningCurves(series)
 
