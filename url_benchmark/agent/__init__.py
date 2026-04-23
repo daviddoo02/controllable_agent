@@ -14,6 +14,7 @@ from .goal_td3 import GoalTD3Agent
 from .discrete_sf import DiscreteSFAgent
 from .rnd import RNDAgent
 from .diayn import DIAYNAgent
+from .diayn_continuous import DIAYNContinuousAgent
 from .aps import APSAgent
 from .proto import ProtoAgent
 from .icm_apt import ICMAPTAgent
