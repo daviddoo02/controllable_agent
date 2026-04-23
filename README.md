@@ -1,97 +1,196 @@
 [![CircleCI](https://dl.circleci.com/status-badge/img/gh/facebookresearch/controllable_agent/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/facebookresearch/controllable_agent/tree/main)
 
-# Controllable Agent
+# Controllable Agent — EECS 567 Team 14
 
-A controllable agent is a reinforcement learning agent whose reward function can be set in real time, without any additional learning or fine-tuning, based on a reward-free pretraining phase.
+This repo extends the original [facebookresearch/controllable_agent](https://github.com/facebookresearch/controllable_agent) with URLB pretraining baselines for **FB-DDPG** and **DIAYN**, and three improvements to DIAYN's downstream adaptation within the URLB 100k fine-tuning budget.
 
-This project builds a controllable agent based on the Forward-Backward representation from our papers:
+Original work builds a controllable agent based on the Forward-Backward representation:
 - A. Touati, J. Rapin, Y. Ollivier, [Does Zero-Shot Reinforcement Learning Exist?](https://arxiv.org/abs/2209.14935)
 - A. Touati, Y. Ollivier, [Learning One Representation to Optimize All Rewards (Neurips 2021)](https://arxiv.org/abs/2103.07945)
 
 
-## Using the Platform
+## Setup
 
-As an on-going research project, please only expect limited support and no backward-compatibility.
-
-
-### Structure
-
-The repository is made of 2 packages: `url_benchmark` and `controllable_agent`:
-- `controllable_agent` package is only a wrapper around `url_benchmark` to ease experimentation at scale.
-- `url_benchmark` package is heavily based on the [`rll-research/url_benchmark`](https://github.com/rll-research/url_benchmark) repository. Main differences include additional agents (notably the Forward-Backward agent), a simplified replay buffer, and structural updates of the package.
-
-
-### Quick Install
-
-The project dependencies are specificied in the `requirements.txt`, to which one needs to add installation of [`mujoco`](https://github.com/openai/mujoco-py).
-
-You can install the full environment, including mujoco with: \
-`source env.sh install <env_name>` (`env_name` defaults to `ca` if not specified)
-
-You can activate the environment with: \
-`source env.sh activate <env_name>` (`env_name` defaults to `ca` if not specified)
-
-**Note**: by default, rendering for Mujoco is performed with egl, if that does not work for you, you can try `export MUJOCO_GL=glfw`
-
-
-### Training
-
-The main entry point is the `url_benchmark.pretrain` command.
-
-#### Commandline
-
-As the command-line interface is provided through [`hydra`](https://github.com/facebookresearch/hydra), you can check available parameters and their default values through:
-`python -m url_benchmark.pretrain --cfg job`
-
-In particular, configuration for training with `fb_ddpg` (Forward-Backward) agent can be obtained through:
-`python -m url_benchmark.pretrain agent=fb_ddpg --cfg job`
-
-Remove the `--cfg job` parameter to run training, for instance training on quadruped on a simplified goal space with tensorboard and hiplot logging can be performed through:
-`python -m url_benchmark.pretrain agent=fb_ddpg task=quadruped_walk goal_space=simplified_quadruped use_tb=1 use_hiplog=1`
-
-**Notes**: 
-- Hydra commandline also has [grid-search capacities](https://hydra.cc/docs/1.0/tutorials/basic/running_your_app/multi-run/#internaldocs-banner) as weel as [SLURM cluster support](https://hydra.cc/docs/1.0/plugins/submitit_launcher/#usage) and many other features.
-- other APIs exist such as `url_benchmark.anytrain` with similar functionalities.
-
-### Colab Experiment Guide (FB vs DIAYN Comparison)
-
-This section covers running FB and DIAYN on the same task for comparison.
-
-#### Step 1: Pre-train both agents (reward-free)
-
-Run each in a separate Colab cell:
+### Install (first time only)
 
 ```bash
-# Forward-Backward agent
-python -m url_benchmark.pretrain agent=fb_ddpg task=walker_walk use_tb=1
-
-# DIAYN agent
-python -m url_benchmark.pretrain agent=diayn task=walker_walk use_tb=1
+source env.sh install ca
 ```
 
-Both will run for 2M frames by default and save snapshots to `exp_local/`. You can reduce training time with `num_train_frames=500000`.
+This installs MuJoCo 2.1.1 and all Python dependencies into a conda environment named `ca`.
 
-#### Step 2: Monitor training in Colab
+### Activate
 
-In a new Colab cell, launch TensorBoard inline:
-
-```python
-%load_ext tensorboard
-%tensorboard --logdir exp_local
+```bash
+conda activate ca
 ```
 
-Key metric to watch: **episode return (R)** during eval — this reflects how well the agent performs on the downstream task with its learned representation.
+### MuJoCo rendering
 
-#### Step 3: Compare results
-
-After training, the eval curves for both agents will appear in TensorBoard. Compare:
-- **Final episode return** — which agent reaches a higher reward?
-- **Sample efficiency** — which agent learns faster during pretraining?
-
-Snapshots are saved at 100k, 200k, 500k, 800k, 1M, 1.5M, 2M frames under:
+```bash
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME/.mujoco/mujoco-2.1.1/lib
+export MUJOCO_GL=egl   # use glfw if egl fails
 ```
-exp_local/<experiment>/<agent>/<task>/
+
+**GPU note:** PyTorch 2.10+ dropped support for Pascal GPUs (GTX 1080 Ti, sm_61). If you have a Pascal GPU, install a compatible version:
+```bash
+pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cu121
 ```
+
+
+## Phase 1 — Pretraining (2M frames, reward-free)
+
+### FB-DDPG
+
+```bash
+python -m url_benchmark.pretrain agent=fb_ddpg task=walker_walk seed=1 use_tb=1
+python -m url_benchmark.pretrain agent=fb_ddpg task=walker_walk seed=2 use_tb=1
+python -m url_benchmark.pretrain agent=fb_ddpg task=walker_walk seed=3 use_tb=1
+
+python -m url_benchmark.pretrain agent=fb_ddpg task=quadruped_walk seed=1 use_tb=1
+python -m url_benchmark.pretrain agent=fb_ddpg task=quadruped_walk seed=2 use_tb=1
+python -m url_benchmark.pretrain agent=fb_ddpg task=quadruped_walk seed=3 use_tb=1
+```
+
+### DIAYN
+
+```bash
+python -m url_benchmark.pretrain agent=diayn task=walker_walk seed=1 use_tb=1
+python -m url_benchmark.pretrain agent=diayn task=walker_walk seed=2 use_tb=1
+python -m url_benchmark.pretrain agent=diayn task=walker_walk seed=3 use_tb=1
+
+python -m url_benchmark.pretrain agent=diayn task=cheetah_run seed=1 use_tb=1
+python -m url_benchmark.pretrain agent=diayn task=cheetah_run seed=2 use_tb=1
+python -m url_benchmark.pretrain agent=diayn task=cheetah_run seed=3 use_tb=1
+```
+
+Snapshots are saved to `exp_local/<timestamp>_<agent>_<task>_online/` at 100k, 200k, 500k, 800k, 1M, 1.5M, and 2M frames.
+
+### Monitor with TensorBoard
+
+```bash
+tensorboard --logdir exp_local
+```
+
+### Check available config parameters
+
+```bash
+python -m url_benchmark.pretrain --cfg job
+python -m url_benchmark.pretrain agent=fb_ddpg --cfg job
+```
+
+
+## Phase 2 — DIAYN Improvements (100k frame budget)
+
+All three improvements take a pretrained DIAYN snapshot as input. Replace `<snapshot>` with the path to your `snapshot_2000000.pt`.
+
+### Improvement 1 — DIAYN+SS (Skill Selection, zero-shot)
+
+Evaluates all 16 skills with equal frame budgets and picks the best one. No gradient updates.
+
+```bash
+python run_diayn_eval_suite.py \
+    --snapshot exp_local/<run>/snapshot_2000000.pt \
+    --task walker_walk \
+    --seed 1 \
+    --outdir outputs/eval_suite/walker_walk_s1
+```
+
+### Improvement 2 — DIAYN+SS+FT (Skill Selection + Fine-tuning)
+
+Spends 20k frames on skill selection, then fine-tunes the selected skill with task reward for 80k frames.
+
+```bash
+python diayn_finetune.py \
+    --snapshot exp_local/<run>/snapshot_2000000.pt \
+    --task walker_walk \
+    --seed 1 \
+    --outdir outputs/finetune/diayn_ss_walker_walk_s1
+```
+
+### Improvement 3 — DIAYN+PPO (PPO Skill Controller)
+
+Freezes the pretrained DIAYN low-level policy and trains a PPO controller over the skill space for 100k frames.
+
+```bash
+python diayn_ppo_controller.py \
+    --snapshot exp_local/<run>/snapshot_2000000.pt \
+    --task walker_walk \
+    --seed 1 \
+    --outdir outputs/diayn_ppo/walker_walk/seed-1
+```
+
+### Run all three back-to-back
+
+```bash
+python run_diayn_eval_suite.py \
+    --snapshot exp_local/<run>/snapshot_2000000.pt \
+    --task walker_walk \
+    --seed 1 \
+    --outdir outputs/full_suite/walker_walk_s1 \
+    --ppo_total_frames 100000
+```
+
+
+## Analysis Scripts
+
+```bash
+# PPO reward summary table (outputs ppo_reward_table.md)
+python scripts/analysis/make_ppo_table.py --ppo_root outputs/diayn_ppo
+
+# DIAYN vs PPO learning curves
+python scripts/analysis/plot_diayn_vs_ppo.py --ppo_root outputs/diayn_ppo
+
+# PPO-only learning curves
+python scripts/analysis/plot_ppo_only.py --ppo_root outputs/diayn_ppo
+```
+
+
+## Output Structure
+
+```
+exp_local/
+  <timestamp>_<agent>_<task>_online/
+    eval.csv                  # eval reward every 10k frames
+    train.csv                 # training metrics
+    snapshot_<N>.pt           # checkpoint at N frames
+    test_rewards.json         # downstream task rewards at end of training
+
+outputs/
+  diayn_ppo/<task>/seed-<N>/
+    eval.csv
+    summary.json
+    checkpoint.pt
+    best_checkpoint.pt
+
+  finetune/<run>/
+    eval.csv
+    skill_selection.json      # selected skill and all per-skill rewards
+```
+
+
+## Agents
+
+| Agent | Command | Description |
+|---|---|---|
+| FB-DDPG | `agent=fb_ddpg` | Forward-Backward representation, zero-shot adaptation |
+| DIAYN | `agent=diayn` | Skill discovery via mutual information (discrete, 16 skills) |
+| DIAYN Continuous | `agent=diayn_continuous` | Continuous Gaussian skill space (experimental) |
+| RND | `agent=rnd` | Random Network Distillation |
+| ICM | `agent=icm` | Intrinsic Curiosity Module |
+| APS | `agent=aps` | Active Pre-Training with Successor features |
+| ProtoRL | `agent=proto` | Prototypical RL |
+| SMM | `agent=smm` | State Marginal Matching |
+
+
+## Supported Tasks
+
+| Domain | Tasks |
+|---|---|
+| `walker` | `stand`, `walk`, `run`, `flip` |
+| `cheetah` | `run`, `walk`, `walk_backward`, `run_backward` |
+| `quadruped` | `stand`, `walk`, `run`, `jump` |
+| `jaco` | `reach_top_left`, `reach_top_right`, `reach_bottom_left`, `reach_bottom_right` |
 
 ### Offline Training
 Here are some instructions to train FB agent offline on a dataset of transitions generated by RND in the Walker domain. 
