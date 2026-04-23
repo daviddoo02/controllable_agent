@@ -434,6 +434,48 @@ class BaseWorkspace(tp.Generic[C]):
             for key, val in physics_agg.dump():
                 log(key, val)
 
+    def _evaluate_skill(self, skill_idx: int, num_episodes: int = 3) -> float:
+        """Roll out a single DIAYN skill and return mean episode reward."""
+        from collections import OrderedDict
+
+        skill = np.zeros(self.agent.skill_dim, dtype=np.float32)
+        skill[skill_idx] = 1.0
+        meta = OrderedDict()
+        meta['skill'] = skill
+
+        episode_rewards = []
+        for _ in range(num_episodes):
+            time_step = self.eval_env.reset()
+            total_reward = 0.0
+            while not time_step.last():
+                with torch.no_grad(), utils.eval_mode(self.agent):
+                    action = self.agent.act(
+                        time_step.observation, meta, 0, eval_mode=True
+                    )
+                time_step = self.eval_env.step(action)
+                total_reward += time_step.reward
+            episode_rewards.append(total_reward)
+        return float(np.mean(episode_rewards))
+
+    def _select_best_skill(self, num_episodes_per_skill: int = 3) -> np.ndarray:
+        """Try all DIAYN skills and return the one-hot vector for the best."""
+        skill_dim = self.agent.skill_dim
+        print(f"\n[Skill Selection] Evaluating {skill_dim} skills on {self.cfg.task}...")
+
+        skill_rewards = []
+        for skill_idx in range(skill_dim):
+            mean_reward = self._evaluate_skill(skill_idx, num_episodes_per_skill)
+            skill_rewards.append(mean_reward)
+            print(f"  skill {skill_idx:2d}: mean_reward = {mean_reward:.2f}")
+
+        best_idx = int(np.argmax(skill_rewards))
+        print(f"[Skill Selection] Best skill: {best_idx} "
+              f"(reward={skill_rewards[best_idx]:.2f})\n")
+
+        best_skill = np.zeros(skill_dim, dtype=np.float32)
+        best_skill[best_idx] = 1.0
+        return best_skill
+
     _CHECKPOINTED_KEYS = ('agent', 'global_step', 'global_episode', "replay_loader")
 
     def save_checkpoint(self, fp: tp.Union[Path, str], exclude: tp.Sequence[str] = ()) -> None:
@@ -517,6 +559,8 @@ class BaseWorkspace(tp.Generic[C]):
                 return
             eval_hist = self.eval_rewards_history
             rewards = {}
+            is_diayn = isinstance(self.agent, agents.DIAYNAgent)
+
             for name in domain_tasks[self.domain]:
                 task = "_".join([self.domain, name])
                 self.cfg.task = task
@@ -524,9 +568,31 @@ class BaseWorkspace(tp.Generic[C]):
                 self.cfg.seed += 1  # for the sake of avoiding similar seeds
                 self.eval_env = self._make_env()
                 self.eval_rewards_history = []
-                self.cfg.num_eval_episodes = 1
-                for _ in range(repeat):
-                    self.eval()
+
+                if is_diayn:
+                    best_skill = self._select_best_skill(num_episodes_per_skill=3)
+
+                    from collections import OrderedDict
+
+                    original_init_meta = self.agent.init_meta
+
+                    def fixed_init_meta():
+                        meta = OrderedDict()
+                        meta['skill'] = best_skill.copy()
+                        return meta
+
+                    self.agent.init_meta = fixed_init_meta
+                    try:
+                        self.cfg.num_eval_episodes = 1
+                        for _ in range(repeat):
+                            self.eval()
+                    finally:
+                        self.agent.init_meta = original_init_meta
+                else:
+                    self.cfg.num_eval_episodes = 1
+                    for _ in range(repeat):
+                        self.eval()
+
                 rewards[task] = self.eval_rewards_history
         self.eval_rewards_history = eval_hist  # restore
         with (self.work_dir / "test_rewards.json").open("w") as f:
